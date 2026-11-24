@@ -1,0 +1,33 @@
+name: scrape-marez
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: "1 = quick test, 0 = full run"
+        default: "0"
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install trafilatura ddgs beautifulsoup4 pandas pypdf requests
+      - run: python scraper.py
+        env:
+          PART: ${{ matrix.part }}
+          TEST_MODE: ${{ github.event.inputs.test_mode }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-part${{ matrix.part }}
+          path: |
+            results*.zip
+            scrape_out/search_log.csv
+          retention-days: 30
