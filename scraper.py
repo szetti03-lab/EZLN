@@ -1,5 +1,3 @@
-# Auto-generated from the notebook. Env: PART (1-4), TEST_MODE (0/1). Output: results_partN.zip in the working directory.
-
 import os
 def display(x):
     print(x.to_string() if hasattr(x,'to_string') else x)
@@ -237,8 +235,11 @@ def fetch(url, qid):
     open(PAGES,'a',encoding='utf-8').write(json.dumps(rec, ensure_ascii=False) + '\n'); seen.add(url)
     time.sleep(random.uniform(2, 4)); return rec
 
+SEARCH_STATS = {'calls': 0, 'zero': 0}
+def search_dead(): return SEARCH_STATS['calls'] >= 10 and SEARCH_STATS['zero'] == SEARCH_STATS['calls']
 def search(q, qid, n=8):
-    """Merge results of several search backends (stop early when enough)."""
+    """Merge results of several search backends (stop early when enough). Circuit breaker: if the first 10 calls all return nothing (IP blocked), search engines are skipped."""
+    if search_dead(): return []
     urls = []
     for be in BACKENDS:
         for attempt in range(2):
@@ -250,6 +251,8 @@ def search(q, qid, n=8):
             except Exception: time.sleep(5 * (attempt + 1))
         if len(set(urls)) >= n: break
     urls = list(dict.fromkeys(urls))
+    SEARCH_STATS['calls'] += 1; SEARCH_STATS['zero'] += (len(urls) == 0)
+    if search_dead(): print('!! search engines return nothing from this IP: skipping them; using site-search, OpenAlex, crawl only')
     log(qid=qid, query=q, outcome=f'{len(urls)} results', via='search')
     return urls
 
@@ -265,6 +268,19 @@ def site_search(name, qid):
         except Exception as e: log(qid=qid, query=u, outcome='error: ' + str(e)[:60], via='site-search')
         time.sleep(random.uniform(2, 3))
     return list(dict.fromkeys(found))[:12]
+def openalex(q, qid, n=10):
+    """Academic channel: OpenAlex (free API) -> open-access full-text URLs (PDF or landing page)."""
+    out = []
+    try:
+        r = requests.get('https://api.openalex.org/works', params={'search': q, 'per-page': n, 'filter': 'open_access.is_oa:true', 'mailto': 'your-email@example.com'}, headers=UA, timeout=30)
+        r.raise_for_status()
+        for w in r.json().get('results', []):
+            loc = w.get('best_oa_location') or {}
+            u = loc.get('pdf_url') or loc.get('landing_page_url')
+            if u: out.append(u)
+        log(qid=qid, query='openalex: ' + q, outcome=f'{len(out)} results', via='openalex')
+    except Exception as e: log(qid=qid, query='openalex: ' + q, outcome='error: ' + str(e)[:60], via='openalex')
+    time.sleep(1); return list(dict.fromkeys(out))
 print('helpers ready')
 
 for u in SEEDS: fetch(u, 'seed|' + u)
@@ -284,6 +300,8 @@ for i, r in cand.iterrows():
             urls = search(q, qid + s); print(r.marez, '|', s, '|', len(urls), flush=True)
             for u in urls: fetch(u, qid + s)
         for u in site_search(nm, qid + 'site-search'): fetch(u, qid + 'site-search')
+        for q in (f'municipio autónomo {nm} zapatista', f'MAREZ {nm} Chiapas autonomía'):
+            for u in openalex(q, qid + 'openalex'): fetch(u, qid + 'openalex')
 print('done B+C; pages:', len(seen))
 
 recs = [json.loads(l) for l in open(PAGES, encoding='utf-8')]
@@ -307,6 +325,7 @@ for i, r in ctl.iterrows():
         urls = search(q, qid, n=6); print(r.municipio, '|', len(urls), flush=True)
         for u in urls: fetch(u, qid)
     for u in site_search(r.municipio + ' Chiapas', qid)[:6]: fetch(u, qid)
+    for u in openalex(f'{r.municipio} Chiapas conflicto agrario organización campesina', qid, n=5): fetch(u, qid)
 print('done controls; pages:', len(seen), '| minutes:', round((time.time() - T0) / 60))
 
 def norm(s): return ''.join(c for c in unicodedata.normalize('NFKD', s.lower()) if not unicodedata.combining(c))
