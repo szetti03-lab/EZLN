@@ -304,7 +304,7 @@ for i, r in cand.iterrows():
             for u in openalex(q, qid + 'openalex'): fetch(u, qid + 'openalex')
 print('done B+C; pages:', len(seen))
 
-recs = [json.loads(l) for l in open(PAGES, encoding='utf-8')]
+recs = [json.loads(l) for l in open(PAGES, encoding='utf-8')] if os.path.exists(PAGES) else []
 todo = []
 for rec in recs:
     for u in rec.get('links', []):
@@ -389,7 +389,7 @@ def gazetteer(recs):
                                  sentence=s, url=rec['url'], via=rec.get('via', '')))
     return rows
 
-recs = [json.loads(l) for l in open(PAGES, encoding='utf-8')]
+recs = [json.loads(l) for l in open(PAGES, encoding='utf-8')] if os.path.exists(PAGES) else []
 ex = pd.DataFrame(extract(recs))
 # noise filter: for candidates keep only MAREZ/community mentions, or 'other' mentions that also have Zapatista terms + a birth/end verb
 if len(ex): ex = ex[(ex.kind != 'cand') | (ex.mention_type != 'other') | (ex.zapatista_in_sentence & (ex.birth_verb | ex.end_verb))]
